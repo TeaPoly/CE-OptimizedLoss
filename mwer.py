@@ -360,16 +360,9 @@ class Seq2seqMwerLoss(torch.nn.Module):
 if __name__ == "__main__":
     torch.manual_seed(34)
 
-    if True:
-        # torch.manual_seed(34): tensor(96.3212)
-        candidate_paths_num = 4
-        vocab_size = 4000
-        seq_len = 300
-    else:
-        # torch.manual_seed(34): tensor(0.1657)
-        candidate_paths_num = 3
-        vocab_size = 3
-        seq_len = 4
+    candidate_paths_num = 3
+    vocab_size = 3
+    seq_len = 4
 
     batch_size = 2
     lens_list = [seq_len / 2, seq_len]
