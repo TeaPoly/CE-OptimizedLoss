@@ -14,7 +14,7 @@ It is normal to observe that the loss value is getting smaller and smaller, beca
 
 ![](https://user-images.githubusercontent.com/3815778/206600760-ea1927ea-e479-43b0-8aa4-14c10ede7511.png)
 
-> What is the difference in effect between beam search and negative sampling stategy for MWER loss?
+> What is the different between beam search and negative sampling stategy for MWER loss?
 
 The beam search and negative sampling stategy both are method to generate multiple candidate paths.
 
