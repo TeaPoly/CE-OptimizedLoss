@@ -8,7 +8,7 @@ Computes the MWER (minimum WER) Loss with beam search and negative sampling stra
 
 > Why is the loss value negative?
 
-The loss is just a scalar that you are trying to minimize. It's not supposed to be positive. [Reference](https://github.com/keras-team/keras/issues/1917#issuecomment-193580929)
+The loss is just a scalar that you are trying to minimize. It's not supposed to be positive. A detailed discussion can be found [here](https://github.com/keras-team/keras/issues/1917#issuecomment-193580929).
 
 It is normal to observe that the loss value is getting smaller and smaller, because the average word error is subtracted when normalizing. For details, please refer to the following formula from paper https://arxiv.org/abs/1712.01818.
 ![](https://user-images.githubusercontent.com/3815778/206600760-ea1927ea-e479-43b0-8aa4-14c10ede7511.png)
