@@ -4,6 +4,25 @@
 
 Computes the MWER (minimum WER) Loss with beam search and negative sampling strategy.
 
+## Q&A
+
+> Why is the loss value negative?
+
+The loss is just a scalar that you are trying to minimize. It's not supposed to be positive. [Reference](https://github.com/keras-team/keras/issues/1917#issuecomment-193580929)
+
+It is normal to observe that the loss value is getting smaller and smaller, because the average word error is subtracted when normalizing. For details, please refer to the following formula from paper https://arxiv.org/abs/1712.01818.
+![](https://user-images.githubusercontent.com/3815778/206600760-ea1927ea-e479-43b0-8aa4-14c10ede7511.png)
+
+> What is the difference in effect between beam search and negative sampling stategy for MWER loss?
+
+The beam search and negative sampling stategy both are method to generate multiple candidate paths.
+
+- The negative sampling strategy to generate multiple candidate paths by randomly masking the top1 score token during the MWER training as said in [paper](https://arxiv.org/abs/2206.08317). 
+- The Beam search strategy is a heuristic search algorithm that explores a graph by expanding the most promising node in a limited set. 
+
+So the negative sampling strategy is training faster than beam search strategy. MWER loss with the beam search stategy is closer to the actual calling method.
+
+
 ## Citations
 
 ``` bibtex
