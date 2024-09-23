@@ -165,3 +165,117 @@ class DecoderSmoothedMaxPoolingLoss(nn.Module):
                 loss += - torch.log(neg_prob).sum()
 
         return loss
+
+
+class EncoderSmoothedMaxPoolingLoss(nn.Module):
+    """
+    For the encoder SMP loss, we used truncated gaussian with
+    µ= 0, σ = 4 frames and truncated length 9. Encoder max pooling
+    windows have size of 20 frames with offsetE = 40 frames. These
+    windows are placed sequentially in 40 frames interval.
+    """
+
+    def __init__(
+        self,
+        win_size: int = 20,  # 200ms
+        offset_d: int = 40,  # 400ms
+        trunc_window_size: int = 9,  # 90ms
+        sigma: int = 4,  # 40ms
+    ) -> None:
+        """
+        Args:
+        - win_size: Window size for the max pooling.
+        - offset_d: Offset size.
+        - trunc_window_size: Truncated window size.
+        - sigma: Gaussian sigma.
+        """
+        super(EncoderSmoothedMaxPoolingLoss, self).__init__()
+        self.win_size = win_size
+        self.smoothing_filter = truncated_gaussian_in_full_window(
+            full_window_size=win_size, trunc_window_size=trunc_window_size, sigma=sigma
+        )
+        self.offset_d = offset_d
+
+    def forward(
+        self,
+        X: torch.Tensor,
+        lengths: torch.Tensor,
+        tgt: List[List],
+        p_end: List[int],
+        sil_idx: int = 0,
+    ):
+        """
+        Args:
+        - X: Tensor of shape (batch_size, frames, num_class), the input log-softmax.
+        - lengths: Tensor of shape (batch_size,), encoder lengths.
+        - tgt: Tensor of shape (batch_size, frames,), ground truth labels.
+        - p_end: List of phoneme end frame.
+
+        Returns:
+        - loss: Scalar tensor representing the smoothed max pooling loss.
+        """
+        num_utts, _, _ = X.shape
+        smoothing_filter = self.smoothing_filter.to(X.device)
+
+        # Initialize the total loss
+        loss = 0.0
+
+        # Get all frame lengths and the number of phonemes for each utterance
+        cur_frame_lens = lengths[:num_utts]  # Shape: [num_utts]
+        cur_phoneme_nums = torch.tensor([len(t) for t in tgt]).to(
+            X.device
+        )  # Shape: [num_utts]
+
+        # Get cur_phoneme_end for each utterance and adjust with offset_d
+        cur_phoneme_ends = torch.clamp(
+            torch.tensor(p_end[:num_utts]).long().to(X.device) + self.offset_d,
+            max=cur_frame_lens,
+        )  # Shape: [num_utts]
+
+        # Compute tau_e_start and tau_e_end in a vectorized manner
+        idxs = (
+            torch.arange(cur_phoneme_nums.max(), device=X.device)
+            .unsqueeze(0)
+            .expand(num_utts, -1)
+        )
+        tau_e_starts = torch.clamp(
+            cur_phoneme_ends.unsqueeze(1)
+            - self.win_size * (cur_phoneme_nums.unsqueeze(1) - idxs),
+            min=0,
+        )
+        tau_e_ends = torch.clamp(
+            tau_e_starts + self.win_size, max=cur_frame_lens.unsqueeze(1)
+        )
+
+        # Initialize first_tau_e_start and last_tau_e_end
+        first_tau_e_starts = tau_e_starts[:, 0]
+        last_tau_e_ends = tau_e_ends[torch.arange(num_utts), cur_phoneme_nums - 1]
+
+        # For each utterance and phoneme, calculate smoothed max pooling in the window
+        for i in range(num_utts):
+            cur_frame_len = cur_frame_lens[i]
+            part_log_prob = X[i, :cur_frame_len, :]
+            part_tgt = tgt[i]
+            cur_phoneme_num = cur_phoneme_nums[i]
+
+            # Loop through all phonemes
+            for idx in range(cur_phoneme_num):
+                tau_e_start = tau_e_starts[i, idx]
+                tau_e_end = tau_e_ends[i, idx]
+
+                # Apply smoothing for each window
+                log_prob_win = part_log_prob[tau_e_start:tau_e_end, part_tgt[idx]].view(
+                    1, 1, -1
+                )
+                smoothed_log_prob_win = F.conv1d(
+                    log_prob_win, smoothing_filter, padding="same"
+                ).view(-1)
+
+                # Find the maximum probability and accumulate loss
+                loss += -smoothed_log_prob_win.max()
+
+            # Compute negative loss for frames outside the phoneme regions
+            loss += -part_log_prob[: first_tau_e_starts[i], sil_idx].sum()
+            loss += -part_log_prob[last_tau_e_ends[i] :, sil_idx].sum()
+
+        return loss
