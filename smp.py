@@ -122,6 +122,7 @@ class DecoderSmoothedMaxPoolingLoss(nn.Module):
         - loss: Scalar tensor representing the smoothed max pooling loss.
         """
         num_utts, frames, num_keywords = X.shape
+        smoothing_filter = self.smoothing_filter.to(X.device)
 
         loss = 0.0
         for i in range(num_utts):
@@ -143,7 +144,7 @@ class DecoderSmoothedMaxPoolingLoss(nn.Module):
 
                     smoothed_prob_win = F.conv1d(
                         prob_win,
-                        self.smoothing_filter.to(prob_win.device),
+                        smoothing_filter,
                         padding="same",
                     ).view(-1)
 
