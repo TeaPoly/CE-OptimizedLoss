@@ -2,7 +2,8 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Computes the MWER (minimum WER) Loss with beam search and negative sampling strategy.
+- Smoothed Max Pooling Loss: Apply temporal smoothing on the logits of frames before max pooling operation. 
+- MWER loss: Computes the MWER (minimum WER) Loss with beam search and negative sampling strategy.
 
 ## Q&A
 
@@ -41,5 +42,15 @@ So the negative sampling strategy is training faster than beam search strategy. 
   pages={4839--4843},
   year={2018},
   organization={IEEE}
+}
+
+@misc{park2020learningdetectkeywordparts,
+      title={Learning To Detect Keyword Parts And Whole By Smoothed Max Pooling}, 
+      author={Hyun-Jin Park and Patrick Violette and Niranjan Subrahmanya},
+      year={2020},
+      eprint={2001.09246},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2001.09246}, 
 }
 ```
