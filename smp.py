@@ -115,7 +115,7 @@ class DecoderSmoothedMaxPoolingLoss(nn.Module):
         Args:
         - X: Tensor of shape (batch_size, frames, num_class), the input sigmoid.
         - lengths: Tensor of shape (batch_size,), encoder lengths.
-        - tgt: Tensor of shape (batch_size, 1), ground truth labels, -1 means negative.
+        - tgt: Tensor of shape (batch_size), ground truth labels, -1 means negative.
         - w_end: List of word end frame.
 
         Returns:
