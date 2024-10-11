@@ -75,20 +75,20 @@ def truncated_gaussian_in_full_window(
     return smoothing_filter
 
 
+
 class DecoderSmoothedMaxPoolingLoss(nn.Module):
     """
     For the decoder SMP(smoothed max pooling) loss,
-    we used truncated Gaussian as the smoothing filter s(t) with µ = 0, σ = 9 frames (90ms) 
-    and truncated length 21 frames.
+    we used truncated Gaussian as the smoothing filter s(t) with µ = 0, σ = 9 frames (90ms) and truncated length 21 frames.
     Max pooling window of size 60 frames (600ms) with offsetD = 40 frames (400ms) is used.
     """
 
     def __init__(
         self,
-        win_size: int = 60,  # 600ms
-        offset_d: int = 40,  # 400ms
-        trunc_window_size: int = 21,  # 210ms
-        sigma: int = 9,  # 90ms
+        win_size: int = 15,  # 600ms
+        offset_d: int = 10,  # 400ms
+        trunc_window_size: int = 6,  # 230ms
+        sigma: int = 3,  # 120ms
     ) -> None:
         """
         Args:
@@ -97,7 +97,7 @@ class DecoderSmoothedMaxPoolingLoss(nn.Module):
         - trunc_window_size: Truncated window size.
         - sigma: Gaussian sigma.
         """
-        super(DecoderSmoothedMaxPoolingLoss, self).__init__()
+        super(DecoderSmoothedMaxPoolingLossV2, self).__init__()
         self.win_size = win_size
         self.smoothing_filter = truncated_gaussian_in_full_window(
             full_window_size=win_size, trunc_window_size=trunc_window_size, sigma=sigma
@@ -115,55 +115,96 @@ class DecoderSmoothedMaxPoolingLoss(nn.Module):
         Args:
         - X: Tensor of shape (batch_size, frames, num_class), the input sigmoid.
         - lengths: Tensor of shape (batch_size,), encoder lengths.
-        - tgt: Tensor of shape (batch_size,), ground truth labels.
+        - tgt: Tensor of shape (batch_size, 1), ground truth labels, -1 means negative.
         - w_end: List of word end frame.
 
         Returns:
         - loss: Scalar tensor representing the smoothed max pooling loss.
         """
-        num_utts, frames, num_keywords = X.shape
-        smoothing_filter = self.smoothing_filter.to(X.device)
+        mask = padding_mask(lengths)
+        X_clamp = torch.clamp(X.masked_fill(mask.unsqueeze(-1), 0.0), 1e-8, 1.0)
+        #  num_utts, frames, num_keywords = X.shape
+        device = X.device
+        smoothing_filter = self.smoothing_filter.to(device)
 
-        loss = 0.0
-        for i in range(num_utts):
-            cur_len = lengths[i]
-            part_prob = X[i, :cur_len, :]
-            for j in range(num_keywords):
-                prob = part_prob[:, j]
-                if tgt[i] == j:
-                    assert w_end[i] > 0, (w_end[i], cur_len)
-                    tau_d_start = max(
-                        0, w_end[i] + self.offset_d - self.win_size)
-                    tau_d_end = min(tau_d_start + self.win_size, cur_len)
-                    assert tau_d_start < tau_d_end, (tau_d_start, tau_d_end)
+        # Compute negative sample loss for all samples and keywords
+        negative_mask = torch.ones_like(X_clamp, dtype=torch.bool)
 
-                    # Apply the smoothing filter
-                    # Positive loss: log max pooling over window [tau_d_start, tau_d_end]
-                    # (minibatch,in_channels, iW)
-                    prob_win = prob[tau_d_start:tau_d_end].view(1, 1, -1)
+        # Get indices of samples where `tgt != -1`
+        valid_tgt_mask = tgt != -1
+        valid_indices = torch.nonzero(valid_tgt_mask).squeeze(-1)
 
-                    smoothed_prob_win = F.conv1d(
-                        prob_win,
-                        smoothing_filter,
-                        padding="same",
-                    ).view(-1)
+        if valid_indices.numel() > 0:
+            # Convert valid_indices to a Python list
+            valid_indices_list = valid_indices.tolist()
+            tgt_valid = tgt[valid_tgt_mask]
 
-                    smoothed_prob_win = torch.clamp(
-                        smoothed_prob_win, 1e-8, 1.0)
+            # Note: Ensure that tgt_valid is also a Python list or tensor
+            # Exclude target classes
+            negative_mask[valid_indices, :, tgt_valid] = False
 
-                    # Find the frame with the maximum logit for each class
-                    max_prob = smoothed_prob_win.max()
+            # Process positive samples
+            tau_d_start = []
+            tau_d_end = []
+            for idx, i in enumerate(valid_indices_list):
+                cur_frame_len = lengths[i]
+                assert w_end[i] > 0, (w_end[i], cur_frame_len)
+                start = max(0, w_end[i] + self.offset_d - self.win_size)
+                end = min(start + self.win_size, cur_frame_len)
+                assert start < end, (start, end)
+                tau_d_start.append(start)
+                tau_d_end.append(end)
 
-                    # Calculate cross entropy loss for positive frames
-                    loss += -torch.log(max_prob)
+            max_window_size = max(
+                end - start for start, end in zip(tau_d_start, tau_d_end)
+            )
+            # Initialize a tensor to store all positive sample windows
+            prob_windows = torch.zeros(
+                len(valid_indices_list), 1, max_window_size, device=device
+            )
 
-                    other_prob = torch.cat(
-                        (prob[:tau_d_start], prob[tau_d_end:]), 0)
-                else:
-                    other_prob = prob
+            for idx, i in enumerate(valid_indices_list):
+                # i = int(i)  # Ensure i is an integer
+                prob = X_clamp[i, :, tgt[i]]
+                start = tau_d_start[idx]
+                end = tau_d_end[idx]
+                window = prob[start:end]
+                # Pad to the maximum window size
+                prob_windows[idx, 0, : end - start] = window
 
-                neg_prob = torch.clamp(1 - other_prob, 1e-8, 1.0)
-                loss += - torch.log(neg_prob).sum()
+            # Apply convolution to all windows
+            smoothed_prob_windows = F.conv1d(
+                prob_windows,
+                smoothing_filter,
+                padding="same",
+                groups=1,
+            ).squeeze(1)
+
+            # Compute positive sample loss
+            max_probs = smoothed_prob_windows.clamp(1e-8, 1.0).max(dim=1).values
+            positive_loss = -torch.log(max_probs).sum()
+
+            # Process negative loss for positive samples
+            for idx, i in enumerate(valid_indices_list):
+                # i = int(i)  # Ensure i is an integer
+                prob = X_clamp[i, :, tgt[i]]
+                start = tau_d_start[idx]
+                end = tau_d_end[idx]
+                neg_loss = -torch.log(1 - prob[:start]).sum()
+                neg_loss += -torch.log(1 - prob[end : lengths[i]]).sum()
+                positive_loss += neg_loss
+        else:
+            positive_loss = (
+                0.0  # If there are no valid positive samples, positive loss is zero
+            )
+
+        # Apply valid frame mask and negative sample mask
+        negative_loss = -torch.log(1 - X_clamp)
+        negative_loss = negative_loss * negative_mask
+        negative_loss = negative_loss.sum()
+
+        # Total loss
+        loss = positive_loss + negative_loss
 
         return loss
 
