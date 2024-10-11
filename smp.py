@@ -85,10 +85,10 @@ class DecoderSmoothedMaxPoolingLoss(nn.Module):
 
     def __init__(
         self,
-        win_size: int = 15,  # 600ms
-        offset_d: int = 10,  # 400ms
-        trunc_window_size: int = 6,  # 230ms
-        sigma: int = 3,  # 120ms
+        win_size: int = 60,  # 600ms
+        offset_d: int = 40,  # 400ms
+        trunc_window_size: int = 21,  # 210ms
+        sigma: int = 9,  # 9ms
     ) -> None:
         """
         Args:
